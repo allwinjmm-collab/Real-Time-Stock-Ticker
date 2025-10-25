@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real-Time Stock Trading Dashboard</title>
+<link rel="stylesheet" href="style.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>📈 Real-Time Stock Trader</h1>
+  <div class="balance">💰 Balance: $<span id="balance">10000</span></div>
+  <button id="toggleTheme">Dark Mode</button>
+</header>
+
+<div class="ticker-container">
+  <div class="ticker" id="ticker"></div>
+</div>
+
+<main>
+  <h2>Available Stocks</h2>
+  <div class="cards-container" id="cardsContainer"></div>
+
+  <div class="portfolio">
+    <h2>Your Portfolio</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Stock</th>
+          <th>Shares</th>
+          <th>Avg Price</th>
+          <th>Current Price</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody id="portfolioTable"></tbody>
+    </table>
+  </div>
+</main>
+
+<!-- BUY/SELL MODAL -->
+<div class="modal" id="tradeModal">
+  <div class="modal-content">
+    <h3 id="modalTitle">Buy/Sell Stock</h3>
+    <p id="modalStockName"></p>
+    <input type="number" id="sharesInput" placeholder="Enter number of shares" min="1">
+    <div>
+      <button class="confirm" id="confirmTrade">Confirm</button>
+      <button class="cancel" id="cancelTrade">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const stocks = [
+  { name: "Apple", price: 175.32, img: "https://logo.clearbit.com/apple.com", history: [] },
+  { name: "Microsoft", price: 310.21, img: "https://logo.clearbit.com/microsoft.com", history: [] },
+  { name: "Tesla", price: 900.45, img: "https://logo.clearbit.com/tesla.com", history: [] },
+  { name: "Amazon", price: 140.89, img: "https://logo.clearbit.com/amazon.com", history: [] },
+  { name: "Google", price: 2850.34, img: "https://logo.clearbit.com/google.com", history: [] },
+  { name: "Meta", price: 330.55, img: "https://logo.clearbit.com/meta.com", history: [] }
+];
+
+let balance = 10000;
+let portfolio = {};
+let charts = {};
+let currentTrade = { type: null, stock: null };
+
+// DOM elements
+const ticker = document.getElementById('ticker');
+const cardsContainer = document.getElementById('cardsContainer');
+const balanceEl = document.getElementById('balance');
+const portfolioTable = document.getElementById('portfolioTable');
+const tradeModal = document.getElementById('tradeModal');
+const modalTitle = document.getElementById('modalTitle');
+const modalStockName = document.getElementById('modalStockName');
+const sharesInput = document.getElementById('sharesInput');
+const confirmTrade = document.getElementById('confirmTrade');
+const cancelTrade = document.getElementById('cancelTrade');
+
+// ===== Render Ticker =====
+function renderTicker() {
+  ticker.innerHTML = '';
+  stocks.forEach(s => {
+    const item = document.createElement('div');
+    item.className = 'ticker-item';
+    const change = (Math.random() * 4 - 2).toFixed(2);
+    const changeClass = change >= 0 ? 'change-positive' : 'change-negative';
+    s.change = (change >= 0 ? '+' : '') + change + '%';
+    item.innerHTML = `<img src="${s.img}">${s.name}: $${s.price.toFixed(2)} <span class="${changeClass}">${s.change}</span>`;
+    ticker.appendChild(item);
+  });
+}
+
+// ===== Render Stock Cards =====
+function renderCards() {
+  cardsContainer.innerHTML = '';
+  stocks.forEach(stock => {
+    const changeClass = stock.change.startsWith('+') ? 'change-positive' : 'change-negative';
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <img src="${stock.img}" alt="${stock.name}">
+      <h3>${stock.name}</h3>
+      <p class="price">$${stock.price.toFixed(2)}</p>
+      <p class="${changeClass}">${stock.change}</p>
+      <canvas id="chart-${stock.name}"></canvas>
+      <div class="trade-btn">
+        <button class="buy-btn" onclick="openTrade('buy','${stock.name}')">Buy</button>
+        <button class="sell-btn" onclick="openTrade('sell','${stock.name}')">Sell</button>
+      </div>
+    `;
+    cardsContainer.appendChild(card);
+    createChart(stock);
+  });
+}
+
+// ===== Create Chart =====
+function createChart(stock) {
+  const ctx = document.getElementById(`chart-${stock.name}`);
+  stock.history.push(stock.price);
+  if (stock.history.length > 20) stock.history.shift();
+
+  if (charts[stock.name]) {
+    charts[stock.name].data.labels.push('');
+    charts[stock.name].data.datasets[0].data = stock.history;
+    charts[stock.name].update();
+  } else {
+    charts[stock.name] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: new Array(stock.history.length).fill(''),
+        datasets: [{
+          data: stock.history,
+          borderColor: '#4caf50',
+          borderWidth: 2,
+          tension: 0.4,
+          fill: false,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { x: { display: false }, y: { display: false } },
+        animation: { duration: 800, easing: 'easeInOutCubic' }
+      }
+    });
+  }
+}
+
+// ===== Portfolio Rendering =====
+function renderPortfolio() {
+  portfolioTable.innerHTML = '';
+  for (const stock in portfolio) {
+    const s = stocks.find(x => x.name === stock);
+    const currentPrice = s ? s.price : 0;
+    const shares = portfolio[stock].shares;
+    const avg = portfolio[stock].avgPrice;
+    const value = (currentPrice * shares).toFixed(2);
+    portfolioTable.innerHTML += `
+      <tr>
+        <td><img src="${s.img}">${stock}</td>
+        <td>${shares}</td>
+        <td>$${avg.toFixed(2)}</td>
+        <td>$${currentPrice.toFixed(2)}</td>
+        <td>$${value}</td>
+      </tr>
+    `;
+  }
+}
+
+// ===== Update Prices & Charts =====
+function updatePrices() {
+  stocks.forEach(s => {
+    const change = (Math.random() * 4 - 2).toFixed(2);
+    s.price = parseFloat((s.price * (1 + change/100)).toFixed(2));
+    s.change = (change >= 0 ? '+' : '') + change + '%';
+    s.history.push(s.price);
+    if (s.history.length > 20) s.history.shift();
+    createChart(s);
+  });
+  renderTicker();
+  renderCards();
+  renderPortfolio();
+}
+
+// ===== Trade System =====
+function openTrade(type, stockName) {
+  currentTrade.type = type;
+  currentTrade.stock = stocks.find(s => s.name === stockName);
+  modalTitle.textContent = type === 'buy' ? 'Buy Stock' : 'Sell Stock';
+  modalStockName.textContent = stockName;
+  sharesInput.value = '';
+  tradeModal.style.display = 'flex';
+}
+
+confirmTrade.onclick = () => {
+  const shares = parseInt(sharesInput.value);
+  if (!shares || shares <= 0) return alert("Enter valid number of shares!");
+
+  const stock = currentTrade.stock;
+  const totalCost = shares * stock.price;
+
+  if (currentTrade.type === 'buy') {
+    if (balance < totalCost) return alert("Insufficient balance!");
+    balance -= totalCost;
+    if (!portfolio[stock.name]) portfolio[stock.name] = { shares: 0, avgPrice: 0 };
+    const prev = portfolio[stock.name];
+    const newShares = prev.shares + shares;
+    prev.avgPrice = ((prev.avgPrice * prev.shares) + totalCost) / newShares;
+    prev.shares = newShares;
+  } else {
+    if (!portfolio[stock.name] || portfolio[stock.name].shares < shares)
+      return alert("Not enough shares!");
+    const sellValue = shares * stock.price;
+    portfolio[stock.name].shares -= shares;
+    balance += sellValue;
+    if (portfolio[stock.name].shares === 0) delete portfolio[stock.name];
+  }
+
+  balanceEl.textContent = balance.toFixed(2);
+  renderPortfolio();
+  tradeModal.style.display = 'none';
+};
+
+cancelTrade.onclick = () => tradeModal.style.display = 'none';
+
+// ===== Theme Toggle =====
+document.getElementById('toggleTheme').addEventListener('click', () => {
+  document.body.classList.toggle('dark-mode');
+});
+
+// ===== Initial Render =====
+renderTicker();
+renderCards();
+renderPortfolio();
+setInterval(updatePrices, 5000);
+</script>
+
+</body>
+</html>
