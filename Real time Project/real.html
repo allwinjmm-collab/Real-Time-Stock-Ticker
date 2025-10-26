@@ -1,0 +1,617 @@
+<!--
+  index.html - Real-Time Stock Ticker (Professional UI)
+  ----------------------------------------------------
+  How to use:
+  1) Save this file as index.html and open in a browser.
+  2) (Optional) To enable live data replace '' in API_KEY with your Finnhub API key:
+       - Finnhub free signup: https://finnhub.io (search "Finnhub" — signup is free)
+       - Then set API_KEY = 'your_api_key_here'
+  3) Search symbols (AAPL, TSLA, MSFT, GOOG, AMZN etc.) and add to Watchlist.
+  4) If no API key is provided, the app simulates realistic prices.
+
+  Notes:
+  - Uses Chart.js CDN for charts.
+  - Polls quote endpoint every 5 seconds when API is available.
+  - The file is self-contained: HTML + CSS + JS in one file.
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pro Real-Time Stock Ticker</title>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    /* --- Reset & base --- */
+    :root{
+      --bg:#071426; --card:#0f2340; --muted:#98a6bf; --accent:#00c2a8;
+      --danger:#ff6b6b; --glass: rgba(255,255,255,0.03);
+      --maxWidth:1200px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg, #031022 0%, #071426 60%);
+      color: #e6eef8;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      padding-bottom: 60px;
+    }
+
+    .app {
+      max-width: var(--maxWidth);
+      margin: 20px auto;
+      padding: 20px;
+    }
+
+    header.app-header{
+      display:flex;
+      gap:16px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:18px;
+    }
+
+    .brand {
+      display:flex; gap:12px; align-items:center;
+    }
+    .brand .logo {
+      width:48px;height:48px;border-radius:10px;
+      background:linear-gradient(135deg,#00c2a8,#3dd5ff);
+      display:flex;align-items:center;justify-content:center;font-weight:700;color:#002733;
+      box-shadow:0 6px 20px rgba(17,83,87,0.12);
+      font-size:18px;
+    }
+    .brand h1{font-size:18px;margin:0}
+    .brand p{margin:0;font-size:12px;color:var(--muted)}
+
+    /* --- Ticker Bar --- */
+    .ticker-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border:1px solid rgba(255,255,255,0.03);
+      padding:10px;
+      margin-bottom:16px;
+      display:flex; align-items:center;
+      gap:10px;
+    }
+    .ticker {
+      flex:1;
+      overflow:hidden;
+      white-space:nowrap;
+      font-weight:600;
+      color:var(--muted);
+      position:relative;
+    }
+    .ticker-inner{
+      display:inline-block;
+      animation:scroll 22s linear infinite;
+    }
+    @keyframes scroll{
+      from{transform:translateX(100%)}
+      to{transform:translateX(-100%)}
+    }
+    .tick-item{display:inline-block;margin:0 34px;font-size:14px;}
+    .tick-up{color: #8ef3d8}
+    .tick-down{color: #ffb3b3}
+
+    /* --- Controls --- */
+    .controls { display:flex; gap:12px; align-items:center; }
+    .search{
+      display:flex; gap:8px; align-items:center;
+      background:var(--glass); padding:6px 8px; border-radius:10px;
+      border:1px solid rgba(255,255,255,0.02);
+    }
+    .search input {
+      background:transparent;border:0;outline:0;color:inherit;padding:8px;width:220px;
+    }
+    .btn {
+      padding:8px 12px;border-radius:10px;border:0;cursor:pointer;font-weight:600;
+      background: linear-gradient(90deg,var(--accent),#00d1ff); color:#002733;
+      box-shadow:0 6px 20px rgba(0,194,168,0.12);
+    }
+    .btn.ghost{
+      background:transparent;color:var(--muted);border:1px solid rgba(255,255,255,0.03);
+    }
+
+    /* --- Layout --- */
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 380px;
+      gap:20px;
+      align-items:start;
+    }
+
+    /* Left Column: Market feed & cards */
+    .feed {
+      display:flex; flex-direction:column; gap:18px;
+    }
+
+    .cards {
+      display:grid;
+      grid-template-columns: repeat(auto-fill,minmax(240px,1fr));
+      gap:14px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.03);
+      box-shadow:0 6px 24px rgba(2,12,28,0.35);
+    }
+    .card .thumb{
+      height:120px;border-radius:8px;overflow:hidden;margin-bottom:10px;background:#061428;
+    }
+    .card .thumb img{ width:100%; height:100%; object-fit:cover; display:block;}
+    .card .meta{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .symbol{font-weight:700;font-size:16px;color:#dff7f0}
+    .price{font-weight:800;font-size:16px}
+    .delta{font-weight:700;font-size:13px}
+
+    /* Right Column: Watchlist & Chart */
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));
+      padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.03);
+    }
+    .watch-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    .watch-list{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto;padding-right:6px}
+    .watch-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border-radius:8px;background:rgba(255,255,255,0.01)}
+    .watch-left{display:flex;gap:10px;align-items:center}
+    .avatar{width:40px;height:40px;border-radius:8px;background:#07304a;display:flex;align-items:center;justify-content:center;font-weight:700}
+    .watch-actions{display:flex;gap:8px;align-items:center}
+
+    /* Chart area */
+    .chart-card{margin-top:12px}
+    canvas{background:transparent;border-radius:8px}
+
+    /* Modal */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(1,6,14,0.6);display:none;align-items:center;justify-content:center;z-index:60}
+    .modal{background:#071a30;padding:18px;border-radius:12px;width:420px;max-width:94%}
+    .modal h3{margin:0 0 6px 0}
+    .field{display:flex;flex-direction:column;margin:8px 0}
+    .field label{font-size:13px;color:var(--muted);margin-bottom:6px}
+    .field input, .field select{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+
+    /* tiny */
+    .muted{color:var(--muted);font-size:13px}
+    .small{font-size:12px;color:var(--muted)}
+
+    /* responsive */
+    @media (max-width:980px){
+      .grid{grid-template-columns: 1fr}
+      .controls {flex-direction:column;align-items:flex-start}
+      .search input{width:160px}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo">RT</div>
+        <div>
+          <h1>RealTime Pro</h1>
+          <p class="small">Live market watch • Demo app</p>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="search" role="search" aria-label="search symbol">
+          <input id="searchInput" placeholder="Search symbol e.g. AAPL, TSLA" />
+          <button class="btn ghost" id="searchBtn">Search</button>
+        </div>
+        <button class="btn" id="addSampleBtn" title="Add sample symbols">Add Sample</button>
+      </div>
+    </header>
+
+    <!-- Ticker -->
+    <div class="ticker-wrap">
+      <div style="min-width:160px;" class="small muted">Market Ticker</div>
+      <div class="ticker" id="ticker">
+        <div class="ticker-inner" id="tickerInner"></div>
+      </div>
+      <div style="min-width:110px;text-align:right" class="small muted" id="lastUpdate">—</div>
+    </div>
+
+    <main class="grid">
+      <section class="feed">
+        <div class="cards" id="cards"></div>
+      </section>
+
+      <aside class="panel">
+        <div class="watch-title">
+          <strong>Watchlist</strong>
+          <div class="small muted">Live · Auto update</div>
+        </div>
+        <div class="watch-list" id="watchList"></div>
+
+        <div class="chart-card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong id="chartSymbol">AAPL</strong>
+            <div class="small muted" id="chartPrice">—</div>
+          </div>
+          <canvas id="miniChart" height="200"></canvas>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Buy/Sell Modal -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">Trade</h3>
+      <div class="muted" id="modalSubtitle">—</div>
+
+      <div class="field">
+        <label>Action</label>
+        <select id="tradeAction">
+          <option value="buy">Buy</option>
+          <option value="sell">Sell</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Quantity</label>
+        <input id="tradeQty" type="number" value="1" min="1" />
+      </div>
+
+      <div class="field">
+        <label>Price per unit</label>
+        <input id="tradePrice" type="number" />
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn ghost" id="cancelTrade">Cancel</button>
+        <button class="btn" id="confirmTrade">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /*************************************************************************
+     * Configuration
+     *
+     * Replace API_KEY with your Finnhub API key to enable real quote fetching.
+     * If left empty, the app will simulate realistic prices.
+     *
+     * Finnhub quote endpoint:
+     *   https://finnhub.io/api/v1/quote?symbol=AAPL&token=API_KEY
+     *
+     *************************************************************************/
+    const API_KEY = ''; // <-- put your FINNHUB API KEY here (optional)
+    const USE_REAL_API = API_KEY && API_KEY.trim().length > 0;
+
+    // Core app state
+    const state = {
+      symbols: ['AAPL','TSLA','GOOG','MSFT','AMZN'],
+      items: {}, // symbol -> {price,open,high,low,prevClose,history[]}
+      lastUpdate: null,
+      watch: ['AAPL','TSLA','MSFT'],
+      selectedForChart: 'AAPL',
+      pollIntervalMs: 5000
+    };
+
+    // Helper: fetch quote from Finnhub
+    async function fetchQuote(symbol){
+      if(!USE_REAL_API){
+        // simulate
+        return simulateQuote(symbol);
+      }
+      try {
+        const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${API_KEY}`;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error('Quote error');
+        const data = await res.json();
+        // Finnhub returns: c (current), h, l, o, pc, t
+        return {
+          symbol,
+          current: data.c || null,
+          high: data.h || null,
+          low: data.l || null,
+          open: data.o || null,
+          prevClose: data.pc || null,
+          timestamp: data.t || Date.now()/1000
+        };
+      } catch(err){
+        console.warn('API quote failed for',symbol, err);
+        return simulateQuote(symbol);
+      }
+    }
+
+    // Simulation fallback (gives plausible random movements)
+    function simulateQuote(symbol){
+      // keep previous if exists
+      const prev = state.items[symbol];
+      let base = prev ? prev.price : (100 + Math.random()*300);
+      // small variation
+      const change = (Math.random() - 0.45) * (base * 0.008);
+      const current = Math.max(0.1, +(base + change).toFixed(2));
+      const open = prev ? prev.open : +(current - (Math.random()*2)).toFixed(2);
+      const high = +(Math.max(current, open) + Math.random()*3).toFixed(2);
+      const low = +(Math.min(current, open) - Math.random()*3).toFixed(2);
+      return {
+        symbol,
+        current,
+        high,
+        low,
+        open,
+        prevClose: prev ? prev.price : +(current - (Math.random()*2)).toFixed(2),
+        timestamp: Math.floor(Date.now()/1000)
+      };
+    }
+
+    // Utility: format delta string & class
+    function formatDelta(curr, prevClose){
+      if(prevClose === null || prevClose === undefined) return {text:'—',cls:''};
+      const diff = curr - prevClose;
+      const pct = prevClose === 0 ? 0 : (diff / prevClose * 100);
+      const sign = diff >= 0 ? '+' : '';
+      const cls = diff >= 0 ? 'tick-up' : 'tick-down';
+      return { text: `${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(2)}%)`, cls };
+    }
+
+    // Render functions
+    function renderTicker(){
+      const tickerInner = document.getElementById('tickerInner');
+      const nowStr = new Date().toLocaleTimeString();
+      document.getElementById('lastUpdate').textContent = `Updated: ${state.lastUpdate ? new Date(state.lastUpdate).toLocaleTimeString() : nowStr}`;
+      const items = Object.keys(state.items);
+      if(items.length === 0){
+        tickerInner.innerHTML = '<span class="tick-item muted">Loading market tickers…</span>';
+        return;
+      }
+      tickerInner.innerHTML = '';
+      items.forEach(sym => {
+        const it = state.items[sym];
+        const delta = formatDelta(it.price, it.prevClose);
+        const span = document.createElement('span');
+        span.className = `tick-item ${delta.cls}`;
+        span.innerHTML = `<strong>${sym}</strong> $${it.price.toFixed(2)} &nbsp; <span class="small">${delta.text}</span>`;
+        tickerInner.appendChild(span);
+      });
+    }
+
+    function renderCards(){
+      const cards = document.getElementById('cards');
+      cards.innerHTML = '';
+      state.symbols.forEach(sym => {
+        const item = state.items[sym] || {price:0,open:0,high:0,low:0,prevClose:0};
+        const delta = item.prevClose ? (item.price - item.prevClose) : 0;
+        const cls = delta >= 0 ? 'tick-up' : 'tick-down';
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="thumb"><img src="https://source.unsplash.com/random/800x600?stock,${encodeURIComponent(sym)}" alt="${sym}"></div>
+          <div class="meta">
+            <div>
+              <div class="symbol">${sym}</div>
+              <div class="small muted">${(item.open||0).toFixed(2)} open • ${(item.high||0).toFixed(2)} high</div>
+            </div>
+            <div style="text-align:right">
+              <div class="price">$${(item.price||0).toFixed(2)}</div>
+              <div class="delta ${cls}">${delta>=0? '▲':'▼'} ${Math.abs(delta).toFixed(2)}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;justify-content:space-between">
+            <button class="btn" onclick="openTradeModal('${sym}', ${item.price||0})">Trade</button>
+            <button class="btn ghost" onclick="addToWatch('${sym}')">+ Watch</button>
+            <button class="btn ghost" onclick="removeSymbol('${sym}')">Remove</button>
+          </div>
+        `;
+        cards.appendChild(card);
+      });
+    }
+
+    function renderWatch(){
+      const list = document.getElementById('watchList');
+      list.innerHTML = '';
+      state.watch.forEach(sym => {
+        const it = state.items[sym] || {price:0,open:0};
+        const delta = it.prevClose ? (it.price - it.prevClose) : 0;
+        const item = document.createElement('div');
+        item.className = 'watch-item';
+        item.innerHTML = `
+          <div class="watch-left">
+            <div class="avatar">${sym[0]||'S'}</div>
+            <div>
+              <div style="font-weight:700">${sym}</div>
+              <div class="small muted">${(it.open||0).toFixed(2)} open</div>
+            </div>
+          </div>
+          <div class="watch-actions">
+            <div style="text-align:right">
+              <div style="font-weight:800">$${(it.price||0).toFixed(2)}</div>
+              <div class="small ${delta>=0? 'tick-up':'tick-down'}">${delta>=0? '▲':'▼'} ${Math.abs(delta).toFixed(2)}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-left:8px">
+              <button class="btn ghost" onclick="setChartSymbol('${sym}')">View</button>
+              <button class="btn ghost" onclick="removeFromWatch('${sym}')">Remove</button>
+            </div>
+          </div>
+        `;
+        list.appendChild(item);
+      });
+    }
+
+    // Chart (mini)
+    let miniChart = null;
+    function createMiniChart(){
+      const ctx = document.getElementById('miniChart').getContext('2d');
+      miniChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array.from({length:30}, (_,i)=> i+1),
+          datasets: [{
+            label: 'Price',
+            data: Array.from({length:30}, ()=> null),
+            borderColor: '#00c2a8',
+            backgroundColor: 'rgba(0,194,168,0.12)',
+            tension: 0.25,
+            fill: true,
+            pointRadius: 0
+          }]
+        },
+        options:{
+          responsive:true,
+          plugins:{
+            legend:{display:false}
+          },
+          scales:{
+            x:{display:false},
+            y:{grid:{color:'rgba(255,255,255,0.02)'}}
+          }
+        }
+      });
+    }
+
+    function updateMiniChart(symbol){
+      const dat = state.items[symbol] && state.items[symbol].history ? state.items[symbol].history.slice(-30) : [];
+      const data = Array.from({length:30}, (_,i)=>{
+        const v = dat[i - (30 - dat.length)];
+        return v ? v : null;
+      });
+      miniChart.data.datasets[0].data = data;
+      miniChart.update();
+      document.getElementById('chartSymbol').textContent = symbol;
+      document.getElementById('chartPrice').textContent = `$${(state.items[symbol] ? state.items[symbol].price.toFixed(2) : '—')}`;
+    }
+
+    // Manage state updates and polling
+    async function pollSymbols(){
+      const syms = Array.from(new Set(state.symbols.concat(state.watch)));
+      const promises = syms.map(s => fetchQuote(s).catch(()=>simulateQuote(s)));
+      const results = await Promise.all(promises);
+      const now = Date.now();
+      results.forEach(res => {
+        if(!res || !res.symbol) return;
+        const sym = res.symbol;
+        const prev = state.items[sym];
+        const price = +(res.current || (res.current===0?0:res.price) || 0);
+        const prevClose = res.prevClose || (prev? prev.prevClose : price);
+        // build history
+        const history = prev && prev.history ? [...prev.history] : [];
+        history.push(price);
+        if(history.length > 300) history.shift();
+        state.items[sym] = {
+          symbol: sym,
+          price,
+          open: res.open || (prev ? prev.open : price),
+          high: res.high || (prev ? Math.max(prev.high||0, price) : price),
+          low: res.low || (prev ? Math.min(prev.low||0, price) : price),
+          prevClose,
+          timestamp: (res.timestamp || Math.floor(now/1000))*1000,
+          history
+        };
+      });
+      state.lastUpdate = Date.now();
+      renderAll();
+    }
+
+    function renderAll(){
+      renderTicker();
+      renderCards();
+      renderWatch();
+      // ensure chartSymbol exists in state
+      if(!state.items[state.selectedForChart]){
+        state.selectedForChart = Object.keys(state.items)[0] || state.selectedForChart;
+      }
+      updateMiniChart(state.selectedForChart);
+    }
+
+    // CRUD helpers
+    function addToWatch(symbol){
+      if(!state.watch.includes(symbol)){
+        state.watch.push(symbol);
+        if(!state.symbols.includes(symbol)) state.symbols.push(symbol);
+      }
+      renderWatch();
+    }
+    function removeFromWatch(symbol){
+      state.watch = state.watch.filter(s=>s!==symbol);
+      renderWatch();
+    }
+    function removeSymbol(symbol){
+      state.symbols = state.symbols.filter(s=>s!==symbol);
+      delete state.items[symbol];
+      renderCards();
+      renderTicker();
+      renderWatch();
+    }
+
+    function setChartSymbol(symbol){
+      state.selectedForChart = symbol;
+      updateMiniChart(symbol);
+    }
+
+    // Modal trade flow
+    const modalBackdrop = document.getElementById('modalBackdrop');
+    function openTradeModal(symbol, price){
+      document.getElementById('modalTitle').textContent = `Trade ${symbol}`;
+      document.getElementById('modalSubtitle').textContent = `Market price: $${(price||0).toFixed(2)}`;
+      document.getElementById('tradePrice').value = (price||0).toFixed(2);
+      document.getElementById('tradeQty').value = 1;
+      modalBackdrop.style.display = 'flex';
+      // store symbol
+      modalBackdrop.dataset.symbol = symbol;
+    }
+    function closeTradeModal(){ modalBackdrop.style.display='none'; }
+    document.getElementById('cancelTrade').addEventListener('click', closeTradeModal);
+    document.getElementById('confirmTrade').addEventListener('click', ()=>{
+      const symbol = modalBackdrop.dataset.symbol;
+      const action = document.getElementById('tradeAction').value;
+      const qty = +document.getElementById('tradeQty').value;
+      const price = +document.getElementById('tradePrice').value;
+      alert(`${action.toUpperCase()} ${qty} × ${symbol} @ $${price.toFixed(2)} — (Demo only)`);
+      closeTradeModal();
+    });
+
+    // UI events
+    document.getElementById('addSampleBtn').addEventListener('click', ()=>{
+      ['NVDA','META','NFLX','BABA','INTC'].forEach(s=>{
+        if(!state.symbols.includes(s)) state.symbols.push(s);
+      });
+      pollSymbols();
+    });
+
+    document.getElementById('searchBtn').addEventListener('click', ()=>{
+      const q = document.getElementById('searchInput').value.trim().toUpperCase();
+      if(!q) return alert('Type a ticker symbol like AAPL or TSLA');
+      if(!state.symbols.includes(q)) state.symbols.unshift(q);
+      if(!state.watch.includes(q)) state.watch.unshift(q);
+      pollSymbols();
+      document.getElementById('searchInput').value='';
+      setChartSymbol(q);
+    });
+
+    // Keyboard Enter search
+    document.getElementById('searchInput').addEventListener('keypress', (e)=>{
+      if(e.key==='Enter'){ document.getElementById('searchBtn').click(); }
+    });
+
+    // Initialize chart and start polling
+    (function init(){
+      createMiniChart();
+      // initial poll for base symbols
+      pollSymbols();
+      // periodic poll
+      setInterval(pollSymbols, state.pollIntervalMs);
+      // allow chart click selection from cards (delegation)
+      document.getElementById('cards').addEventListener('click', (e)=>{
+        const btn = e.target.closest('button');
+        if(!btn) return;
+        // handled elsewhere by inline handlers
+      });
+      // first render after a little time
+      setTimeout(()=>renderAll(), 600);
+    })();
+  </script>
+</body>
+</html>
+    
